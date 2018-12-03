@@ -68,11 +68,7 @@ let commonLetters (a : string, b : string) =
       None
   f 0 None
 
-let permute input =
-  let cached = Seq.cache input
-  Seq.allPairs cached cached |> Seq.where (fun (a, b) -> a <> b)
-
-let findPair = permute >> Seq.map commonLetters >> Seq.tryPick id
+let findPair = Helpers.permute >> Seq.map commonLetters >> Seq.tryPick id
 
 [<Fact>]
 let ``Common Letters Test`` () =
