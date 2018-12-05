@@ -5,6 +5,7 @@ open System.Text
 open Xunit
 open System.Text.RegularExpressions
 open System
+open System.Diagnostics
 
 type Rectangle = {
   Left : int
@@ -52,114 +53,34 @@ let ``Overlap Tests - Parse`` claim input =
   let actual = parseInputLine input
   Assert.Equal (claim, actual)
 
-type Interval = {
-  Start : int
-  End : int
-}
-let inline (><?) s1 s2 = s1.Start <= s2.End && s1.Start <= s2.End
-let inline (>-<) s1 s2 = if s1.Start < s2.Start then { Start = s1.Start; End = s2.End } else { Start = s2.Start; End = s1.End }
-//let inline (<->) s1 s2 =
-//  if s1.Start < s2.Start && s1.End < s2.End then [ { Start = s1.Start; End = s2.Start }; { Start = s2.End; End = s1.End } ]
-//  else if s1.Start < s2.Start then [ { Start = s1.Start; End = s2.Start }]
-//  else [ { Start = s2.End; End = s2.End }]
-//let inline (<) s1 s2 = s1.End < s2.Start
-let getYInterval r = { Start = r.Top; End = r.Bottom }
+let getOverlappingArea rects =
+  let minWidth, maxWidth =
+    (rects |> (Seq.map (fun r -> r.Left) >> Seq.min)),
+    (rects |> (Seq.map (fun r -> r.Right) >> Seq.max))
+  let minHeight, maxHeight =
+    (rects |> (Seq.map (fun r -> r.Top) >> Seq.min)),
+    (rects |> (Seq.map (fun r -> r.Bottom) >> Seq.max))
+  let height = maxHeight - minHeight
+  let width = maxWidth - minWidth
+  let array = Array.init width (fun _ -> Array.zeroCreate<int> height)
+  let update (r : Rectangle) =
+    seq { 0 .. r.Width - 1 } |> Seq.map ((+) (r.Left - minWidth)) |> Seq.iter (fun i ->
+      seq { 0 .. r.Height - 1 } |> Seq.map ((+) (r.Top - minHeight)) |> Seq.iter (fun j ->
+        array.[i].[j] <- array.[i].[j] + 1))
+  rects |> Seq.iter update
+  let sum1 e = if e > 1 then 1 else 0
+  array |> Seq.sumBy (Seq.sumBy sum1)
 
-type OverlapTree =
-| Leaf of Span : Interval
-| Node of Merged : Interval * Left : OverlapTree * Right : OverlapTree
-  with
-    member this.Interval =
-      match this with 
-      | Leaf i -> i
-      | Node (Merged = m) -> m
-    static member Create ((l : OverlapTree), (r : OverlapTree)) = Node(l.Interval >-< r.Interval, l, r)
-
-type Overlap = {
-  Tree : OverlapTree
-} with
-  member this.TotalInterval =
-    match this.Tree with
-    | Leaf i -> i
-    | Node(Merged = i) -> i
-
-let getArea = (*) << List.sumBy (fun ys -> ys.End - ys.Start) << List.map (fun (o : Overlap) -> o.TotalInterval)
-
-let rec insert i (os : Overlap list) =
-  let rec f i tree =
-    match tree with
-    | Leaf l -> Node(i >-< l, Leaf i, Leaf l)
-    | Node(m, l0, r0) ->
-      let b = i < l0.Interval
-      let l, r =
-        (if b then Node(i >-< l0.Interval, Leaf i, l0) else l0),
-        (if b then r0 else Node(i >-< r0.Interval, r0, Leaf i))
-      OverlapTree.Create(l, r)
-  match os with
-  | [] -> [{ Tree = Leaf i }]
-  | o :: os when i ><? o.TotalInterval -> { Tree = f i o.Tree } :: os
-  | o :: os -> o :: insert i os
-
-type RemoveResult =
-| Success of OverlapTree option
-| Failure of OverlapTree
-let rec remove i (os : Overlap list) =
-  let rec f i tree =
-    match tree with
-    | Leaf j when i = j -> Success None
-    | Node (_, Leaf l, r) when l = i -> Success (Some r)
-    | Node (_, l, Leaf r) when r = i -> Success (Some l)
-    | Node (_, l, r) ->
-      let remL = if i ><? l.Interval then f i l else Failure l
-      let remR =
-        match remL with
-        | Failure _ -> if i ><? r.Interval then f i r else Failure r
-        | _ -> Failure r
-      let succ = OverlapTree.Create
-      match remL, remR with
-      | Failure l0, Failure r0 -> Failure (succ (l0, r0))
-      | Success (Some l0), Failure r0 -> Success (Some (succ (l0, r0)))
-      | Failure l0, Success (Some r0) -> Success (Some (succ (l0, r0)))
-      | _ -> failwith "Shouldn't happen"
-    | Leaf j -> Failure (Leaf j)
-  match os with
-  | [] -> failwith "Shouldn't happen"
-  | o :: os when i ><? o.TotalInterval ->
-    match f i o.Tree with
-    | Success r ->
-      match r with
-      | Some t -> { Tree = o.Tree } :: os
-      | None -> os
-    | Failure _ -> failwith "Shouldn't happen"
-  | o :: os -> o :: remove i os
-
-type XEventType = Start of Rectangle | End of Rectangle
-type XEvent = {
-  X : int
-  Event : XEventType
-}
-
-let sweep (rects : Rectangle seq) =
-  let rects = rects |> List.ofSeq |> List.sortBy (fun r -> r.Right)
-  let getAllXs =
-    let dup r = [
-      { X = r.Left; Event = Start r }
-      { X = r.Right; Event = End r }]
-    List.collect dup >> List.sortBy (fun x -> x.X)
-  let rec f (xs : XEvent list) (ys : Overlap list) (x0 : int) (area : int) =
-    match xs with
-    | [] -> area
-    | { X = x; Event = e } :: xs ->
-      let area0 = getArea ys (x - x0)
-      let update =
-        match e with
-        | Start r -> insert (getYInterval r)
-        | End r -> remove (getYInterval r)
-      f xs (update ys) x (area + area0)
-  f (getAllXs rects) [] 0 0
+let getTotals = Seq.map parseInputLine >> Seq.map (fun r -> r.Envelope) >> getOverlappingArea
 
 [<Fact>]
-let ``Overlap Tests - Find`` () =
-  let actual = overlapInputData |> (Seq.map parseInputLine >> Seq.map (fun r -> r.Envelope) >> sweep)
-  let expected = 32
+let ``Overlap Tests - Overlapping Area`` () =
+  let actual = getTotals overlapInputData
+  let expected = 4
+  Assert.Equal (expected, actual)
+
+[<Fact>]
+let ``Overlap Tests - Actual`` () =
+  let actual = File.ReadAllLines "Day3input.txt" |> getTotals
+  let expected = 124850
   Assert.Equal (expected, actual)
