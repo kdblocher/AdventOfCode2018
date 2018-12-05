@@ -56,47 +56,82 @@ type Interval = {
   Start : int
   End : int
 }
+let inline (><?) s1 s2 = s1.Start <= s2.End && s1.Start <= s2.End
+let inline (>-<) s1 s2 = if s1.Start < s2.Start then { Start = s1.Start; End = s2.End } else { Start = s2.Start; End = s1.End }
+//let inline (<->) s1 s2 =
+//  if s1.Start < s2.Start && s1.End < s2.End then [ { Start = s1.Start; End = s2.Start }; { Start = s2.End; End = s1.End } ]
+//  else if s1.Start < s2.Start then [ { Start = s1.Start; End = s2.Start }]
+//  else [ { Start = s2.End; End = s2.End }]
+//let inline (<) s1 s2 = s1.End < s2.Start
+let getYInterval r = { Start = r.Top; End = r.Bottom }
+
+type OverlapTree =
+| Leaf of Span : Interval
+| Node of Merged : Interval * Left : OverlapTree * Right : OverlapTree
+  with
+    member this.Interval =
+      match this with 
+      | Leaf i -> i
+      | Node (Merged = m) -> m
+    static member Create ((l : OverlapTree), (r : OverlapTree)) = Node(l.Interval >-< r.Interval, l, r)
 
 type Overlap = {
-  Intervals : Interval list
+  Tree : OverlapTree
 } with
-  member this.TotalInterval = {
-    Start = this.Intervals |> List.map (fun l -> l.Start) |> List.min
-    End   = this.Intervals |> List.map (fun l -> l.End) |> List.max
-  }
+  member this.TotalInterval =
+    match this.Tree with
+    | Leaf i -> i
+    | Node(Merged = i) -> i
 
-let inline (><?) s1 s2 = s1.Start < s2.End || s1.End > s2.Start
-let inline (>-<) s1 s2 = if s1 ><? s2 then Some { Start = s1.Start; End = s2.End } else None
-let inline (<->) s1 s2 =
-  if s1.Start < s2.Start && s1.End < s2.End then [ { Start = s1.Start; End = s2.Start }; { Start = s2.End; End = s1.End } ]
-  else if s1.Start < s2.Start then [ { Start = s1.Start; End = s2.Start }]
-  else [ { Start = s2.End; End = s2.End }]
-let inline (<) s1 s2 = s1.End < s2.Start
-let getYInterval r = { Start = r.Top; End = r.Bottom }
 let getArea = (*) << List.sumBy (fun ys -> ys.End - ys.Start) << List.map (fun (o : Overlap) -> o.TotalInterval)
 
-let rec driver update zero i (os : Overlap list) =
+let rec insert i (os : Overlap list) =
+  let rec f i tree =
+    match tree with
+    | Leaf l -> Node(i >-< l, Leaf i, Leaf l)
+    | Node(m, l0, r0) ->
+      let b = i < l0.Interval
+      let l, r =
+        (if b then Node(i >-< l0.Interval, Leaf i, l0) else l0),
+        (if b then r0 else Node(i >-< r0.Interval, r0, Leaf i))
+      OverlapTree.Create(l, r)
   match os with
-  | [] -> zero ()
-  | o :: os when i ><? o.TotalInterval -> { Intervals = update i o.Intervals } :: os
-  | o :: os -> o :: driver update zero i os
+  | [] -> [{ Tree = Leaf i }]
+  | o :: os when i ><? o.TotalInterval -> { Tree = f i o.Tree } :: os
+  | o :: os -> o :: insert i os
 
-let rec insert i =
-  let rec f i ys =
-    match ys with
-    | [] -> [i]
-    | y :: ys when i < y -> i :: y :: ys
-    | y :: ys -> y :: f i ys
-  driver f (fun () -> [{ Intervals = [i] }]) i
-
-let rec remove =
-  let rec f i ys =
-    match ys with
-    | [] -> []
-    | y :: ys when i = y -> ys
-    | y :: ys -> y :: f i ys
-  driver f (fun () -> failwith "Not supported")
-
+type RemoveResult =
+| Success of OverlapTree option
+| Failure of OverlapTree
+let rec remove i (os : Overlap list) =
+  let rec f i tree =
+    match tree with
+    | Leaf j when i = j -> Success None
+    | Node (_, Leaf l, r) when l = i -> Success (Some r)
+    | Node (_, l, Leaf r) when r = i -> Success (Some l)
+    | Node (_, l, r) ->
+      let remL = if i ><? l.Interval then f i l else Failure l
+      let remR =
+        match remL with
+        | Failure _ -> if i ><? r.Interval then f i r else Failure r
+        | _ -> Failure r
+      let succ = OverlapTree.Create
+      match remL, remR with
+      | Failure l0, Failure r0 -> Failure (succ (l0, r0))
+      | Success (Some l0), Failure r0 -> Success (Some (succ (l0, r0)))
+      | Failure l0, Success (Some r0) -> Success (Some (succ (l0, r0)))
+      | _ -> failwith "Shouldn't happen"
+    | Leaf j -> Failure (Leaf j)
+  match os with
+  | [] -> failwith "Shouldn't happen"
+  | o :: os when i ><? o.TotalInterval ->
+    match f i o.Tree with
+    | Success r ->
+      match r with
+      | Some t -> { Tree = o.Tree } :: os
+      | None -> os
+    | Failure _ -> failwith "Shouldn't happen"
+  | o :: os -> o :: remove i os
 
 type XEventType = Start of Rectangle | End of Rectangle
 type XEvent = {
