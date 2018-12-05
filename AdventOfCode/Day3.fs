@@ -84,3 +84,36 @@ let ``Overlap Tests - Actual`` () =
   let actual = File.ReadAllLines "Day3input.txt" |> getTotals
   let expected = 124850
   Assert.Equal (expected, actual)
+
+let getSingletons claims =
+  let claims = claims |> List.ofSeq
+  let overlaps (r1 : Rectangle) (r2 : Rectangle) =
+    let r =
+      (r1.Left < r2.Right) &&
+      (r1.Right > r2.Left) &&
+      (r1.Top < r2.Bottom) &&
+      (r1.Bottom > r2.Top)
+    r
+  let findOverlap c =
+    let f c0 = 
+      let r = overlaps c.Envelope c0.Envelope
+      r
+    match claims |> Seq.where ((<>) c) |> Seq.tryFind f with
+    | None -> Some c
+    | Some x -> None
+  claims |> (Seq.map findOverlap >> Seq.choose id)
+
+let findSingleton =
+  Seq.map parseInputLine >> getSingletons >> Seq.exactlyOne
+
+[<Fact>]
+let ``Singleton - Test`` () =
+  let actual = (findSingleton overlapInputData).Number
+  let expected = 3
+  Assert.Equal (expected, actual)
+
+[<Fact>]
+let ``Singleton - Actual`` () =
+  let actual = (findSingleton (File.ReadAllLines "Day3input.txt")).Number
+  let expected = 1097
+  Assert.Equal (expected, actual)
