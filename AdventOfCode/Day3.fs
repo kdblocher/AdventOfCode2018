@@ -17,7 +17,7 @@ type Rectangle = {
 
 type Claim = {
   Number : int
-  Area : Rectangle
+  Rectangle : Rectangle
 }
 
 let parseRegex = Regex ("#(\d+) @ (\d+),(\d+): (\d+)x(\d+)", RegexOptions.Singleline)
@@ -26,7 +26,7 @@ let parseInputLine line =
   let getValue index = groups.[index + 1].Value |> int
   {
     Number = getValue 0
-    Area = {
+    Rectangle = {
       Left   = getValue 1
       Top    = getValue 2
       Width  = getValue 3
@@ -40,9 +40,9 @@ let overlapInputData = [|
   "#3 @ 5,5: 2x2"
 |]
 let overlapTestData : obj [] [] = [|
-  [| { Number = 1; Area = { Left = 1; Top = 3; Width = 4; Height = 4 } }; overlapInputData.[0] |]
-  [| { Number = 2; Area = { Left = 3; Top = 1; Width = 4; Height = 4 } }; overlapInputData.[1] |]
-  [| { Number = 3; Area = { Left = 5; Top = 5; Width = 2; Height = 2 } }; overlapInputData.[2] |]
+  [| { Number = 1; Rectangle = { Left = 1; Top = 3; Width = 4; Height = 4 } }; overlapInputData.[0] |]
+  [| { Number = 2; Rectangle = { Left = 3; Top = 1; Width = 4; Height = 4 } }; overlapInputData.[1] |]
+  [| { Number = 3; Rectangle = { Left = 5; Top = 5; Width = 2; Height = 2 } }; overlapInputData.[2] |]
 |]
 
 [<Theory>]
@@ -52,7 +52,7 @@ let ``Overlap Tests - Parse`` claim input =
   Assert.Equal (claim, actual)
 
 type Intersection = {
-  OverlappingArea : int
+  Rectangle : Rectangle
   RemainingArea : int
 }
 
@@ -69,22 +69,54 @@ let findOverlap (r1 : Rectangle, r2 : Rectangle) =
       Height = bottom - top
     }
     Some {
-      OverlappingArea = intersection.Area
+      Rectangle = intersection
       RemainingArea = r1.Area + r2.Area - (2 * intersection.Area)
     }
     else None
+ 
+let inline permute x = (Helpers.permute >> Helpers.removeDupes) x
+let getRects =
+  let getRect = parseInputLine >> (fun c -> c.Rectangle)
+  permute >> Seq.map (fun (a, b) -> getRect a, getRect b)
+
+let findIntersectionOverlaps =
+  Seq.map findOverlap >> Seq.choose id
+ 
+let findAllOverlaps =
+  getRects >> findIntersectionOverlaps
+
+let transformIntersections =
+  let f (acc, rs) i = (acc + i.RemainingArea, Seq.append rs (Seq.singleton i.Rectangle))
+  Seq.fold f (0, Seq.empty)
 
 [<Fact>]
 let ``Overlap Tests - Find`` () =
-  let getRects =
-    let getRect = parseInputLine >> (fun c -> c.Area)
-    Helpers.permute >> Helpers.removeDupes >> Seq.map (fun (a, b) -> getRect a, getRect b)
-  let find = getRects >> Seq.map findOverlap >> Seq.choose id >> Seq.exactlyOne
-  let actual = find overlapInputData
+  let actual = findAllOverlaps overlapInputData |> Seq.exactlyOne
   let expected = {
-    OverlappingArea = 4
+    Rectangle = {
+      Left = 3
+      Top = 3
+      Width = 2
+      Height = 2
+    }
     RemainingArea = 24
   }
   Assert.Equal (expected, actual)
 
-//let ``Overlap Tests - Double Counting`` () =
+let walkOverlaps input =
+  let rec f acc rs =
+    let (acc0, rs0) = rs |> (permute >> findIntersectionOverlaps >> transformIntersections)
+    if Seq.isEmpty rs0
+      then acc + (rs |> Seq.sumBy (fun r -> r.Area))
+      else f (acc + acc0) rs0
+  f 0 ((findAllOverlaps >> transformIntersections >> snd) input)
+      
+[<Fact>]
+let ``Overlap Tests - Double Counting 1`` () =
+  let actual = walkOverlaps overlapInputData
+  Assert.Equal (4, actual)
+
+[<Fact>]
+let ``Overlap Tests - Double Counting 2`` () =
+  let actual = walkOverlaps (overlapInputData |> Array.append (Array.singleton "#4 @ 2,2: 2x2"))
+  Assert.Equal (7, actual)
