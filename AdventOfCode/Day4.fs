@@ -77,3 +77,80 @@ let guardParseTestData : obj [] [] = [|
 let ``Guard Tests - Parse`` input record =
   let actual = parseInputLine input
   Assert.Equal (record, actual)
+
+type GuardShift = {
+  Date : DateTime
+  SleepIntervals : (DateTime * TimeSpan) list
+}
+type Guard = {
+  ID : int
+  Shifts : GuardShift list
+}
+
+let convert (records : GuardRecord list) =
+  let d = Map<int, Guard> []
+  records |> List.sortBy (fun r -> r.Date)
+  let f db record currentDate guard shifts sleepStart =
+    match record.Action with
+    | Shift gid ->
+      guard = db |> Map.tryFind gid |> Option.defaultWith (fun () -> { ID = id, Shifts = [] })
+    | Sleep ->
+      match currentDate with
+      | Some _ -> failwith "already asleep"
+      | None -> f db record currentDate Some date
+    | Wake ->
+      | match date with
+      | Some d -> 
+
+
+(*
+Date   ID   Minute
+000000000011111111112222222222333333333344444444445555555555
+012345678901234567890123456789012345678901234567890123456789
+11-01  #10  .....####################.....#########################.....
+11-02  #99  ........................................##########..........
+11-03  #10  ........................#####...............................
+11-04  #99  ....................................##########..............
+11-05  #99  .............................................##########.....
+*) 
+let guardDatabaseTestData = [
+  { ID = 10
+    Shifts = [
+      { Date = DateTime(1518, 11, 01)
+        SleepIntervals = [
+          DateTime(1518, 11, 01, 00, 05, 00), TimeSpan.FromMinutes(20.)
+          DateTime(1518, 11, 01, 00, 30, 00), TimeSpan.FromMinutes(25.)
+        ]
+      }
+      { Date = DateTime(1518, 11, 03)
+        SleepIntervals = [
+          DateTime(1518, 11, 03, 00, 24, 00), TimeSpan.FromMinutes(5.)
+        ]
+      }
+    ]
+  }
+  { ID = 99
+    Shifts = [
+      { Date = DateTime(1518, 11, 02)
+        SleepIntervals = [
+          DateTime(1518, 11, 02, 00, 40, 00), TimeSpan.FromMinutes(10.)
+        ]
+      }
+      { Date = DateTime(1518, 11, 04)
+        SleepIntervals = [
+          DateTime(1518, 11, 04, 00, 36, 00), TimeSpan.FromMinutes(10.)
+        ]
+      }
+      { Date = DateTime(1518, 11, 05)
+        SleepIntervals = [
+          DateTime(1518, 11, 05, 00, 45, 00), TimeSpan.FromMinutes(10.)
+        ]
+      }
+    ]
+  }
+]
+
+[<Fact>]
+let ``Guard Tests - Data Conversion`` () =
+  let actual = (Seq.map parseInputLine >> convert) guardRecords
+  Assert.Equal (guardDatabaseTestData, actual)
