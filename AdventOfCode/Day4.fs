@@ -84,24 +84,44 @@ type GuardShift = {
 }
 type Guard = {
   ID : int
-  Shifts : GuardShift list
+  Shifts : Map<DateTime, GuardShift>
 }
 
-let convert (records : GuardRecord list) =
-  let d = Map<int, Guard> []
-  records |> List.sortBy (fun r -> r.Date)
-  let f db record currentDate guard shifts sleepStart =
-    match record.Action with
-    | Shift gid ->
-      guard = db |> Map.tryFind gid |> Option.defaultWith (fun () -> { ID = id, Shifts = [] })
-    | Sleep ->
-      match currentDate with
-      | Some _ -> failwith "already asleep"
-      | None -> f db record currentDate Some date
-    | Wake ->
-      | match date with
-      | Some d -> 
-
+let makeDatabase (records : GuardRecord list) =
+  let adjustShiftDate (date : DateTime) =
+    if date.Hour > 0 then date.Date.AddDays 1. else date.Date
+  let endShift db guard shift =
+    let shift = { shift with SleepIntervals = shift.SleepIntervals |> List.rev }
+    let shifts = guard.Shifts |> Map.add shift.Date shift
+    let guard = { guard with Shifts = shifts }
+    db |> Map.add guard.ID guard
+  let rec startShift records db gid shiftDate =
+    let guard = db |> Map.tryFind gid |> Option.defaultWith (fun () -> { ID = gid; Shifts = Map [] })
+    loop records db guard { Date = shiftDate; SleepIntervals = [] } None
+  and loop records db guard shift sleeping =
+    match records with
+    | [] ->
+      endShift db guard shift
+    | { Date = date; Action = a } :: records ->
+      match a with
+      | Shift gid ->
+        match sleeping with 
+        | Some _ -> failwith "sleeping at end of shift"
+        | None ->
+          startShift records (endShift db guard shift) gid (adjustShiftDate date)
+      | Sleep ->
+        match sleeping with
+        | Some _ -> failwith "already asleep"
+        | None -> loop records db guard shift (Some date)
+      | Wake ->
+        match sleeping with
+        | Some d -> loop records db guard { shift with SleepIntervals = (d, date - d) :: shift.SleepIntervals } None
+        | None -> failwith "already awake"
+  let db = Map []
+  match records |> List.sortBy (fun r -> r.Date) with
+  | [] -> db
+  | { Date = d; Action = Shift gid } :: records -> startShift records db gid (adjustShiftDate d)
+  | _ -> failwith "Record set must start with a shift action"
 
 (*
 Date   ID   Minute
@@ -113,44 +133,52 @@ Date   ID   Minute
 11-04  #99  ....................................##########..............
 11-05  #99  .............................................##########.....
 *) 
-let guardDatabaseTestData = [
-  { ID = 10
-    Shifts = [
-      { Date = DateTime(1518, 11, 01)
+let guardDatabaseTestData = Map [
+  (10, {
+    ID = 10
+    Shifts = Map [
+      (DateTime(1518, 11, 01), {
+        Date = DateTime(1518, 11, 01)
         SleepIntervals = [
           DateTime(1518, 11, 01, 00, 05, 00), TimeSpan.FromMinutes(20.)
           DateTime(1518, 11, 01, 00, 30, 00), TimeSpan.FromMinutes(25.)
         ]
-      }
-      { Date = DateTime(1518, 11, 03)
+      })
+      (DateTime(1518, 11, 03), {
+        Date = DateTime(1518, 11, 03)
         SleepIntervals = [
           DateTime(1518, 11, 03, 00, 24, 00), TimeSpan.FromMinutes(5.)
         ]
-      }
+      })
     ]
-  }
-  { ID = 99
-    Shifts = [
-      { Date = DateTime(1518, 11, 02)
+  })
+  (99, {
+    ID = 99
+    Shifts = Map [
+      (DateTime(1518, 11, 02), {
+        Date = DateTime(1518, 11, 02)
         SleepIntervals = [
           DateTime(1518, 11, 02, 00, 40, 00), TimeSpan.FromMinutes(10.)
         ]
-      }
-      { Date = DateTime(1518, 11, 04)
+      })
+      (DateTime(1518, 11, 04), {
+        Date = DateTime(1518, 11, 04)
         SleepIntervals = [
           DateTime(1518, 11, 04, 00, 36, 00), TimeSpan.FromMinutes(10.)
         ]
-      }
-      { Date = DateTime(1518, 11, 05)
+      })
+      (DateTime(1518, 11, 05), {
+        Date = DateTime(1518, 11, 05)
         SleepIntervals = [
           DateTime(1518, 11, 05, 00, 45, 00), TimeSpan.FromMinutes(10.)
         ]
-      }
+      })
     ]
-  }
+  })
 ]
 
 [<Fact>]
 let ``Guard Tests - Data Conversion`` () =
-  let actual = (Seq.map parseInputLine >> convert) guardRecords
-  Assert.Equal (guardDatabaseTestData, actual)
+  let actual = (List.ofArray >> List.map parseInputLine >> makeDatabase >> Map.toList) guardRecords
+  let expected = guardDatabaseTestData |> Map.toList
+  Assert.Equal<(int * Guard) list> (expected, actual)
