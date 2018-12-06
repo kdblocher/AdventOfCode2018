@@ -2,6 +2,7 @@
 open System.Text.RegularExpressions
 open Xunit
 open System
+open System.IO
 
 type GuardAction =
 | Shift of int
@@ -123,6 +124,25 @@ let makeDatabase (records : GuardRecord list) =
   | { Date = d; Action = Shift gid } :: records -> startShift records db gid (adjustShiftDate d)
   | _ -> failwith "Record set must start with a shift action"
 
+let inline getValues a = (Map.toList >> List.map snd) a
+let getAllShiftSleepIntervals = getValues >> List.collect (fun s -> s.SleepIntervals)
+
+let findSleepiestGuard =
+  let getTotalSleepingTime = getAllShiftSleepIntervals >> List.map snd >> List.fold (+) TimeSpan.Zero
+  getValues >> List.maxBy (fun g -> getTotalSleepingTime g.Shifts)
+
+let findGuardSleepiestMinute g =
+  let array = Array.zeroCreate<int> 60
+  let getMaxMinute () = array |> (Array.mapi (fun m c -> m, c) >> Array.maxBy snd >> fst)
+  let rec update (date : DateTime, span) =
+    if (span > TimeSpan.Zero) then
+      array.[date.Minute] <- array.[date.Minute] + 1
+      update (date.AddMinutes 1., span - (TimeSpan.FromMinutes 1.))
+  g.Shifts |> (getAllShiftSleepIntervals >> Seq.iter update >> getMaxMinute)
+    
+
+let convert = List.ofArray >> List.map parseInputLine >> makeDatabase
+
 (*
 Date   ID   Minute
 000000000011111111112222222222333333333344444444445555555555
@@ -179,6 +199,25 @@ let guardDatabaseTestData = Map [
 
 [<Fact>]
 let ``Guard Tests - Data Conversion`` () =
-  let actual = (List.ofArray >> List.map parseInputLine >> makeDatabase >> Map.toList) guardRecords
-  let expected = guardDatabaseTestData |> Map.toList
-  Assert.Equal<(int * Guard) list> (expected, actual)
+  let actual = convert guardRecords
+  let expected = guardDatabaseTestData
+  Assert.Equal<Map<int, Guard>> (expected, actual)
+
+[<Fact>]
+let ``Sleepiest Guard Tests - Sleepiest Guard`` () =
+  let actual = ((convert >> findSleepiestGuard) guardRecords).ID
+  let expected = 10
+  Assert.Equal (expected, actual)
+
+[<Fact>]
+let ``Sleepiest Guard Tests - Guard's Sleepiest Minute`` () =
+  let actual = (convert >> Map.find 10 >> findGuardSleepiestMinute) guardRecords
+  let expected = 24
+  Assert.Equal (expected, actual)
+
+[<Fact>]
+let ``Sleepiest Guard Actual`` () =
+  let guard = File.ReadAllLines "Day4input.txt" |> (convert >> findSleepiestGuard)
+  let minute = guard |> findGuardSleepiestMinute
+  let expected = 521 * 24
+  Assert.Equal (expected, guard.ID * minute)
