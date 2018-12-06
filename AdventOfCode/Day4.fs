@@ -140,6 +140,8 @@ let findGuardSleepiestMinute g =
       update (date.AddMinutes 1., span - (TimeSpan.FromMinutes 1.))
   g.Shifts |> (getAllShiftSleepIntervals >> Seq.iter update >> getMaxMinute)
     
+let findOverallSleepiestMinute =
+  Map.map (fun _ -> findGuardSleepiestMinute) >> Map.toSeq >> Seq.maxBy snd
 
 let convert = List.ofArray >> List.map parseInputLine >> makeDatabase
 
@@ -199,25 +201,37 @@ let guardDatabaseTestData = Map [
 
 [<Fact>]
 let ``Guard Tests - Data Conversion`` () =
-  let actual = convert guardRecords
+  let actual = guardRecords |> convert
   let expected = guardDatabaseTestData
   Assert.Equal<Map<int, Guard>> (expected, actual)
 
 [<Fact>]
-let ``Sleepiest Guard Tests - Sleepiest Guard`` () =
-  let actual = ((convert >> findSleepiestGuard) guardRecords).ID
+let ``Strategy 1 Test - Sleepiest Guard`` () =
+  let actual = (guardRecords |> (convert >> findSleepiestGuard)).ID
   let expected = 10
   Assert.Equal (expected, actual)
 
 [<Fact>]
-let ``Sleepiest Guard Tests - Guard's Sleepiest Minute`` () =
-  let actual = (convert >> Map.find 10 >> findGuardSleepiestMinute) guardRecords
+let ``Strategy 1 Test - Guard's Sleepiest Minute`` () =
+  let actual = guardRecords |> (convert >> Map.find 10 >> findGuardSleepiestMinute)
   let expected = 24
   Assert.Equal (expected, actual)
 
 [<Fact>]
-let ``Sleepiest Guard Actual`` () =
+let ``Strategy 1 Actual`` () =
   let guard = File.ReadAllLines "Day4input.txt" |> (convert >> findSleepiestGuard)
   let minute = guard |> findGuardSleepiestMinute
   let expected = 521 * 24
   Assert.Equal (expected, guard.ID * minute)
+
+[<Fact>]
+let ``Strategy 2 Test - Overall Sleepiest Minute`` () =
+  let (guardID, minute) = guardRecords |> (convert >> findOverallSleepiestMinute)
+  let expected = 99 * 45
+  Assert.Equal (expected, guardID * minute)
+
+[<Fact>]
+let ``Strategy 2 Actual - Overall Sleepiest Minute`` () =
+  let (guardID, minute) = File.ReadAllLines "Day4input.txt" |> (convert >> findOverallSleepiestMinute) 
+  let expected = 2969 * 47
+  Assert.Equal (expected, guardID * minute)
