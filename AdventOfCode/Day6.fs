@@ -32,23 +32,39 @@ let inline setup coords =
   let array = Array.init lengthX (fun _ -> Array.zeroCreate lengthY)
   (coords, array, (lengthX, lengthY))
 
+let inline checkBounds (lengthX, lengthY) onOutOfBounds coord =
+  match coord with
+    | (x, _) when (x < 0 || x >= lengthX) ->
+      onOutOfBounds ()
+      false
+    | (_, y) when (y < 0 || y >= lengthY) ->
+      onOutOfBounds ()
+      false
+    | _ -> true
+
+let inline processEvent update (x, y) =
+  (Seq.map update >> Seq.choose id >> Seq.toList) [
+    x - 1, y
+    x + 1, y
+    x, y - 1
+    x, y + 1
+  ]
+
+let rec processAllEvents processor events =
+  match List.collect processor events with
+  | [] -> ()
+  | events -> processAllEvents processor events
+
 let maxArea coords =
   let (coords, array, (lengthX, lengthY)) = setup coords
   let areas = Array.init (List.length coords) (fun _ -> Some 1)
   let setStartLocations i (x, y) = array.[x].[y] <- Some { ID = Some i; Distance = 0 }
   coords |> Seq.iteri setStartLocations
 
-  let setLocation loc coord =
+  let setLocation loc (x, y) =
     let updateArea locid f =
       locid |> Option.iter (fun id -> areas.[id] <- f areas.[id])
-    match coord with
-    | (x, _) when (x < 0 || x >= lengthX) ->
-      updateArea loc.ID (fun _ -> None)
-      false
-    | (_, y) when (y < 0 || y >= lengthY) ->
-      updateArea loc.ID (fun _ -> None)
-      false
-    | (x, y) ->
+    checkBounds (lengthX, lengthY) (fun () -> updateArea loc.ID (fun _ -> None)) (x, y) &&
       match array.[x].[y] with
       | None ->
         array.[x].[y] <- Some loc;
@@ -63,28 +79,19 @@ let maxArea coords =
       | _ ->
         false
 
-  let gen1 event =
+  let p event =
     match event with
-    | { Location = loc; Coordinate = (x, y) } ->
-      let nextCoords = [
-        x - 1, y
-        x + 1, y
-        x, y - 1
-        x, y + 1
-      ]
+    | { Location = loc; Coordinate = coord } ->
       let update coord =
         if setLocation loc coord
           then Some { Location = { loc with Distance = loc.Distance + 1 }; Coordinate = coord }
           else None
-      nextCoords |> (Seq.map update >> Seq.choose id >> Seq.toList)
-
-  let rec gen events =
-    match List.collect gen1 events with
-    | [] -> (Array.choose id >> Array.max) areas
-    | events -> gen events
+      processEvent update coord
 
   let makeInitialEvent i coord = { Location = { ID = Some i; Distance = 0 }; Coordinate = coord }
-  (List.mapi makeInitialEvent >> gen) coords 
+  (List.mapi makeInitialEvent >> processAllEvents p) coords
+
+  (Array.choose id >> Array.max) areas
 
 let coordinateTestData = [|
   "1, 1"
@@ -110,13 +117,8 @@ let ``Max Area Actual`` () =
 let safeRegion maxDistance coords =
   let (coords, array, (lengthX, lengthY)) = setup coords
   let mutable size = 0
-  let checkDist coord =
-    match coord with
-    | (x, _) when (x < 0 || x >= lengthX) ->
-      false
-    | (_, y) when (y < 0 || y >= lengthY) ->
-      false
-    | (x, y) ->
+  let checkDist (x, y) =
+    checkBounds (lengthX, lengthY) ignore (x, y) &&
       let calc (x0, y0) = abs (x - x0) + abs (y - y0)
       match array.[x].[y] with
       | Some _ ->
@@ -127,21 +129,13 @@ let safeRegion maxDistance coords =
         if inRegion then size <- size + 1
         inRegion
     
-  let gen1 (x, y) =
-    let nextCoords = [
-      x - 1, y
-      x + 1, y
-      x, y - 1
-      x, y + 1
-    ]
-    nextCoords |> (Seq.where checkDist >> Seq.toList)
+  let p coord =
+    let update coord =
+      if checkDist coord then Some coord else None
+    processEvent update coord
   
-  let rec gen events =
-    match List.collect gen1 events with
-    | [] -> size
-    | events -> gen events
-  
-  gen ((lengthX / 2, lengthY / 2) |> List.singleton)
+  (lengthX / 2, lengthY / 2) |> List.singleton |> processAllEvents p
+  size
 
 [<Fact>]
 let ``Safe Region Test`` () =
