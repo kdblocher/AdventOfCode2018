@@ -10,3 +10,6 @@ let inline removeDupes (pairs : ('a * 'a) seq) =
   let seen = HashSet<'a * 'a>()
   let pairNotSeen (a, b) = seen.Add((a, b)) && seen.Add((b, a))
   pairs |> Seq.where pairNotSeen
+
+let inline curry f a b = f (a, b)
+let inline uncurry f (a, b) = f a b
