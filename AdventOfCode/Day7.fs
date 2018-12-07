@@ -103,6 +103,6 @@ let ``Makespan Test`` () =
 
 [<Fact>]
 let ``Makespan Actual`` () =
-  let actual = File.ReadAllLines "Day7input.txt" |> (Seq.map parseInputLine >> Seq.toList >> makespan 2 (fun v -> int v.[0] - 4))
+  let actual = File.ReadAllLines "Day7input.txt" |> (Seq.map parseInputLine >> Seq.toList >> makespan 5 (fun v -> int v.[0] - 4))
   let expected = 15
   Assert.Equal (expected, actual)
