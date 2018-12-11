@@ -24,9 +24,9 @@ let playMarbles (players, lastMarble) =
   let mutable scores = Map.empty
   while nextMarble <= lastMarble do
     if nextMarble % 23 = 0 then
-      let currentScore = (scores |> (Map.tryFind currentPlayer >> Option.defaultValue 0))
+      let currentScore = (scores |> (Map.tryFind currentPlayer >> Option.defaultValue 0L))
       let removeMarble = currentMarble |> counterclockwise 7
-      let newScore = currentScore + nextMarble + removeMarble.Value
+      let newScore = currentScore + int64 (nextMarble + removeMarble.Value)
       currentMarble <- removeMarble |> clockwise 1
       scores <- scores |> Map.add currentPlayer newScore
       removeMarble |> ring.Remove 
@@ -34,7 +34,7 @@ let playMarbles (players, lastMarble) =
       currentMarble <- ring.AddAfter (currentMarble |> clockwise 1, nextMarble)
     currentPlayer <- (currentPlayer + 1) % players
     nextMarble <- nextMarble + 1
-  let winner = if Map.isEmpty scores then (0, 0) else scores |> (Map.toSeq >> Seq.maxBy snd)
+  let winner = if Map.isEmpty scores then (0, 0L) else scores |> (Map.toSeq >> Seq.maxBy snd)
   winner, ring.AsEnumerable()
 
 let placementTestData : obj [] [] = [|
@@ -90,5 +90,11 @@ let ``Marbles Score - Test`` input expected =
 [<Fact>]
 let ``Marbles Score - Actual`` () = 
   let (player, score), marbles = File.ReadAllText "Day9input.txt" |> (parseInputData >> playMarbles)
-  let expected = 412117
+  let expected = 412117L
+  Assert.Equal (expected, score)
+
+[<Fact>]
+let ``Marbles Score x 100 - Actual`` () = 
+  let (player, score), marbles = File.ReadAllText "Day9input.txt" |> (parseInputData >> (fun (players, lastMarble) -> (players, lastMarble * 100)) >> playMarbles)
+  let expected = 3444129546L
   Assert.Equal (expected, score)
