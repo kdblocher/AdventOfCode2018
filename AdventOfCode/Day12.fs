@@ -54,14 +54,35 @@ let raster (state : bigint) =
   let rasterBit b = if bitVal state b = 0I then '.' else '#'
   state |> (seqBits >> Seq.map rasterBit >> Seq.toArray >> System.String)
 
-let sum (start, state) =
+let converged (start1, state1) (start2, state2) =
+  start1 + 1 = start2 && state1 = state2
+
+type Generation = {
+  Start : int
+  State : bigint
+  Converged : bigint option
+  BaseSum : bigint
+}
+
+let baseSum { Start = start; State = state } =
   let bits = seqBits state |> Seq.cache
   let b0 = Seq.head bits
   let countBit b =
     let potVal = b0 - b + start
     let hasPlant = bitVal state b |> int
     potVal * hasPlant
-  bits |> (Seq.map countBit >> Seq.sum)
+  bits |> (Seq.map countBit >> Seq.sum) |> bigint
+
+let convergedSum generations last nextToLast =
+  match last, nextToLast with
+  | { Converged = Some lastGeneration; BaseSum = sum2 }, { BaseSum = sum1 } ->
+    BigInteger.Subtract(generations, lastGeneration) * (sum2 - sum1)
+  | _ -> 0I
+
+let sum count gens =
+  let gens = gens |> Seq.rev |> Seq.toList
+  match gens with last :: nextToLast :: tail -> convergedSum count last nextToLast | _ -> 0I
+  + baseSum (List.head gens)
 
 let gen noteSize count (state, notes) =
   let noteMidpoint = noteSize / 2
@@ -79,9 +100,7 @@ let gen noteSize count (state, notes) =
     notes |> Seq.iter setNote
     array
   let produce (state : bigint) =
-    //let stateDebug = raster state
     let shiftedState = state <<< noteShift
-    //let shiftedStateDebug = raster shiftedState
     let produceBit b =
       let pattern = shiftedState >>> b
       let index = pattern &&& noteMask |> int
@@ -90,19 +109,28 @@ let gen noteSize count (state, notes) =
       seq { msb shiftedState + noteSize .. -1 .. 0 }
       |> (Seq.fold (bitFolder produceBit) 0I)
       <<< noteMidpoint
-    //let shiftedResultDebug = raster shiftedResult
     let lsb0 = lsb (shiftedResult &&& (mask noteShift))
     let shiftBack = if lsb0 = 0 then noteShift else lsb0 - 1
     let result = shiftedResult >>> shiftBack
-    //let resultDebug = raster result
     noteShift - shiftBack, result
   let originalLength = msb state
-  let rec gen n start state =
-    if n = count then originalLength - (msb state) + start, state
+  let rec gen n prevStart start prevState curState = seq {
+    let hasConverged = converged (prevStart, prevState) (start, curState)
+    let resultStart = originalLength - (msb curState) + start
+    let result = {
+      Start = resultStart
+      State = curState
+      Converged = if hasConverged then Some n else None
+      BaseSum = 0I
+    }
+    let result = { result with BaseSum = baseSum result }
+    yield result
+    if n = count || hasConverged then ()
     else
-      let shift, state' = produce state
-      gen (n + 1) (start + shift) state'
-  gen 0 0 state
+      let shift, nextState = produce curState
+      yield! gen (n + 1I) start (start + shift) curState nextState
+  }
+  gen 0I 0 0 0I state
 
 let testInputData = [
   "initial state: #..#.#..##......###...###"
@@ -124,45 +152,54 @@ let testInputData = [
 ]
 
 let testGenData : obj [] [] = [|
-  [|  0;  0;   "#..#.#..##......###...###"           |]
-  [|  1;  0;   "#...#....#.....#..#..#..#"           |]
-  [|  2;  0;   "##..##...##....#..#..#..##"          |]
-  [|  3; -1;  "#.#...#..#.#....#..#..#...#"          |]
-  [|  4;  0;   "#.#..#...#.#...#..#..##..##"         |]
-  [|  5;  1;    "#...##...#.#..#..#...#...#"         |]
-  [|  6;  1;    "##.#.#....#...#..##..##..##"        |]
-  [|  7;  0;   "#..###.#...##..#...#...#...#"        |]
-  [|  8;  0;   "#....##.#.#.#..##..##..##..##"       |]
-  [|  9;  0;   "##..#..#####....#...#...#...#"       |]
-  [| 10; -1;  "#.#..#...#.##....##..##..##..##"      |]
-  [| 11;  0;   "#...##...#.#...#.#...#...#...#"      |]
-  [| 12;  0;   "##.#.#....#.#...#.#..##..##..##"     |]
-  [| 13; -1;  "#..###.#....#.#...#....#...#...#"     |]
-  [| 14; -1;  "#....##.#....#.#..##...##..##..##"    |]
-  [| 15; -1;  "##..#..#.#....#....#..#.#...#...#"    |]
-  [| 16; -2; "#.#..#...#.#...##...#...#.#..##..##"   |]
-  [| 17; -1;  "#...##...#.#.#.#...##...#....#...#"   |]
-  [| 18; -1;  "##.#.#....#####.#.#.#...##...##..##"  |]
-  [| 19; -2; "#..###.#..#.#.#######.#.#.#..#.#...#"  |]
-  [| 20; -2; "#....##....#####...#######....#.#..##" |]
+  [|  0I;  0;   "#..#.#..##......###...###"           |]
+  [|  1I;  0;   "#...#....#.....#..#..#..#"           |]
+  [|  2I;  0;   "##..##...##....#..#..#..##"          |]
+  [|  3I; -1;  "#.#...#..#.#....#..#..#...#"          |]
+  [|  4I;  0;   "#.#..#...#.#...#..#..##..##"         |]
+  [|  5I;  1;    "#...##...#.#..#..#...#...#"         |]
+  [|  6I;  1;    "##.#.#....#...#..##..##..##"        |]
+  [|  7I;  0;   "#..###.#...##..#...#...#...#"        |]
+  [|  8I;  0;   "#....##.#.#.#..##..##..##..##"       |]
+  [|  9I;  0;   "##..#..#####....#...#...#...#"       |]
+  [| 10I; -1;  "#.#..#...#.##....##..##..##..##"      |]
+  [| 11I;  0;   "#...##...#.#...#.#...#...#...#"      |]
+  [| 12I;  0;   "##.#.#....#.#...#.#..##..##..##"     |]
+  [| 13I; -1;  "#..###.#....#.#...#....#...#...#"     |]
+  [| 14I; -1;  "#....##.#....#.#..##...##..##..##"    |]
+  [| 15I; -1;  "##..#..#.#....#....#..#.#...#...#"    |]
+  [| 16I; -2; "#.#..#...#.#...##...#...#.#..##..##"   |]
+  [| 17I; -1;  "#...##...#.#.#.#...##...#....#...#"   |]
+  [| 18I; -1;  "##.#.#....#####.#.#.#...##...##..##"  |]
+  [| 19I; -2; "#..###.#..#.#.#######.#.#.#..#.#...#"  |]
+  [| 20I; -2; "#....##....#####...#######....#.#..##" |]
 |]
 
 [<Theory>]
 [<MemberData("testGenData")>]
-let ``Plant Generation - Test`` count start plants =
-  let actualStart, actualState = parseInput testInputData |> gen 5 count
+let ``Plant Generation - Test`` generations start plants =
+  let { Start = actualStart; State = actualState } = parseInput testInputData |> (gen 5 generations >> Seq.last)
   let actualPlants = raster actualState
   Assert.Equal (start, actualStart)
   Assert.Equal (plants, actualPlants)
 
 [<Fact>]
 let ``Plant Generation - Sum`` () =
-  let actual = parseInput testInputData |> (gen 5 20 >> sum)
-  let expected = 325
+  let generations = 20I
+  let actual = parseInput testInputData |> (gen 5 generations >> sum generations)
+  let expected = 325I
   Assert.Equal (expected, actual)
 
 [<Fact>]
 let ``Plant Generation - Actual`` () =
-  let actual = File.ReadAllLines "Day12input.txt" |> (Array.toList >> parseInput >> gen 5 20 >> sum)
-  let expected = 1672
+  let generations = 20I
+  let actual = File.ReadAllLines "Day12input.txt" |> (Array.toList >> parseInput >> gen 5 generations >> sum generations)
+  let expected = 1672I
   Assert.Equal (expected, actual)
+
+[<Fact>]
+let ``Plant Generation - Actual 2`` () =
+  let generations = 50000000000I
+  let actual = File.ReadAllLines "Day12input.txt" |> (Array.toList >> parseInput >> gen 5 generations >> sum generations)
+  let expected = 1650000000055I
+  Assert.True false
