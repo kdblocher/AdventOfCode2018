@@ -103,35 +103,17 @@ let moveTick { Tiles = tiles; Carts = carts } =
       carts |> (Map.remove (x, y) >> Map.add (x', y') ({ Direction = direction; NextTurn = nextTurn; Collided = collided }))
   carts |> (Map.toSeq >> Seq.sortBy fst >> Seq.fold moveCart carts)
 
-let render { Tiles = tiles; Carts = carts } =
-  let renderLine i line =
-    let renderChar j char =
-      match tiles.[i].[j] with
-      | None              -> ' '  
-      | Some Horizontal   -> '-'  
-      | Some Vertical     -> '|'  
-      | Some RightCurve   -> '/'  
-      | Some LeftCurve    -> '\\' 
-      | Some Intersection -> '+'
-    line |> (Array.mapi renderChar)
-  let array = tiles |> Array.mapi renderLine 
-  let renderCart (i, j) { Direction = d; Collided = c } =
-    array.[i].[j] <-
-      if c then 'X' else
-        match d with
-        | Up    -> '^'
-        | Down  -> 'v'
-        | Left  -> '<'
-        | Right -> '>'
-  carts |> Map.iter renderCart
-  array |> Array.map System.String |> Array.reduce (fun s1 s2 -> s1 + "\r\n" + s2)
-
 let findFirstCollision { Tiles = tiles; Carts = carts } =
   let rec loop carts =
-    let r = render { Tiles = tiles; Carts = carts }
     let carts = moveTick { Tiles = tiles; Carts = carts }
     carts |> (Map.toSeq >> Seq.sortBy fst >> Seq.tryFind (fun (_, cart) -> cart.Collided) >> Option.defaultWith (fun () -> loop carts))
   loop carts |> fst
+
+let findLastCollision { Tiles = tiles; Carts = carts } =
+  let mutable carts = carts
+  while carts |> Map.count > 1 do
+    carts <- moveTick { Tiles = tiles; Carts = carts } |> (Map.filter (fun _ cart -> not cart.Collided))
+  carts |> (Map.toSeq >> Seq.head >> fst)
 
 let testData = [|
   @"/->-\        "
@@ -152,4 +134,10 @@ let ``First Collision - Test`` () =
 let ``First Collision - Actual`` () =
   let actual = File.ReadAllLines "Day13input.txt" |> (parseInput >> findFirstCollision)
   let expected = (104, 57)
+  Assert.Equal (expected, actual)
+
+[<Fact>]
+let ``Last Collision - Actual`` () =
+  let actual = File.ReadAllLines "Day13input.txt" |> (parseInput >> findLastCollision)
+  let expected = (74, 67)
   Assert.Equal (expected, actual)
