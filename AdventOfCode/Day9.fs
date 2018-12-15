@@ -5,6 +5,7 @@ open Xunit
 open System.Collections.Generic
 open System.Linq
 open System.IO
+open Helpers.LinkedList
 
 let regex = Regex("(\d+) players; last marble is worth (\d+) points")
 let parseInputData input =
@@ -14,10 +15,6 @@ let parseInputData input =
 
 let playMarbles (players, lastMarble) =
   let ring = LinkedList [0]
-  let clockwise, counterclockwise =
-    let rec move f i m = if i = 0 then m else move f (i - 1) (f m)
-    (move (fun (m : LinkedListNode<_>) -> Option.ofObj m.Next |> Option.defaultWith (fun () -> ring.First)),
-     move (fun (m : LinkedListNode<_>) -> Option.ofObj m.Previous |> Option.defaultWith (fun () -> ring.Last)))
   let mutable currentPlayer = 0
   let mutable nextMarble = 1
   let mutable currentMarble = ring.First
@@ -25,13 +22,13 @@ let playMarbles (players, lastMarble) =
   while nextMarble <= lastMarble do
     if nextMarble % 23 = 0 then
       let currentScore = (scores |> (Map.tryFind currentPlayer >> Option.defaultValue 0L))
-      let removeMarble = currentMarble |> counterclockwise 7
+      let removeMarble = currentMarble |> counterclockwise ring 7
       let newScore = currentScore + int64 (nextMarble + removeMarble.Value)
-      currentMarble <- removeMarble |> clockwise 1
+      currentMarble <- removeMarble |> clockwise ring 1
       scores <- scores |> Map.add currentPlayer newScore
       removeMarble |> ring.Remove 
     else
-      currentMarble <- ring.AddAfter (currentMarble |> clockwise 1, nextMarble)
+      currentMarble <- ring.AddAfter (currentMarble |> clockwise ring 1, nextMarble)
     currentPlayer <- (currentPlayer + 1) % players
     nextMarble <- nextMarble + 1
   let winner = if Map.isEmpty scores then (0, 0L) else scores |> (Map.toSeq >> Seq.maxBy snd)
