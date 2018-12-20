@@ -86,30 +86,35 @@ let attackWithUnit tiles units p unit =
     targets |> (Seq.filter (hp >> (=) leastHP) >> Seq.head)
   let dealDamage (p, u) =
     let u = { u with HP = u.HP - unit.Power }
-    units |> (if u.HP <= 0 then Map.remove p else Map.add p u)
+    if u.HP <= 0 then
+      (Some (p, u)), units |> Map.remove p
+    else
+      None, units |> Map.add p u
   Map.tryFind p allies
   |> Option.bind (fun _ -> targetPoints |> (Seq.tryHead >> Option.map (ignore >> pickTarget >> dealDamage)))
 
 
-let combatRound tiles units =
+let combatRound tiles units suddenDeath =
   let turn (state, units) (p, unit) =
     let state = checkState units state unit
-    Some state,
-      if state <> Ongoing then units
-      else
-        let p, units = moveUnit       tiles units p unit |> Option.defaultValue (p, units)
-        let    units = attackWithUnit tiles units p unit |> Option.defaultValue units
-        units
+    if state <> Ongoing then Some state, units
+    else
+      let p, units = moveUnit       tiles units p unit |> Option.defaultValue (p, units)
+      let r, units = attackWithUnit tiles units p unit |> Option.defaultValue (None, units)
+      match suddenDeath with
+      | Some race when r |> (Option.map (fun (p, u) -> u.Race = race) >> Option.defaultValue false) ->
+        Some Ended, units
+      | _ -> Some state, units
   units |> (turnOrder >> Seq.fold turn (None, units))
 
-let combat (tiles, units) =
+let combat suddenDeath (tiles, units) =
   let mutable round = 0
   let mutable state = Ongoing
   let mutable units = units
   seq {
     yield { Round = round; State = state; Units = units }
     while state = Ongoing do
-      let state', units' = combatRound tiles units
+      let state', units' = combatRound tiles units suddenDeath
       state <- state' |> Option.get
       units <- units'
       round <- round + 1
@@ -119,6 +124,18 @@ let combat (tiles, units) =
 let outcome { Round = round; Units = units; } =
   let hpSum = units |> (Map.toSeq >> Seq.map hp >> Seq.sum)
   hpSum * (round - 1)
+
+let search race (tiles, units) =
+  let rec loop lower maybeUpper guess =
+    let setPower _ u = if u.Race = race then { u with Power = guess } else u
+    let result = combat (Some race) (tiles, units |> Map.map setPower) |> Seq.last
+    let anyDeaths = result.Units |> Map.exists (fun _ u -> u.Race <> race)
+    match anyDeaths, maybeUpper with
+    | false, Some upper when upper - lower <= 1 -> outcome result
+    | true, None -> loop guess None (guess * 2)
+    | true, Some upper -> loop guess (Some upper) ((upper + guess) / 2)
+    | _ -> loop lower (Some guess) ((guess + lower + 1) / 2)
+  loop 1 None 1
 
 [<Fact>]
 let ``Turn Order`` () =
@@ -243,7 +260,7 @@ let moveData : obj [] [] = [|
 let ``Move All`` input output =
   let tiles, units = parseInput input
   let getPoints (_, units) = units |> (Map.toSeq >> Seq.map fst)
-  let actual = combatRound tiles units |> getPoints
+  let actual = combatRound tiles units None |> getPoints
   let expected = output |> (parseInput >> getPoints)
   Assert.Equal<seq<_>> (expected, actual)
 
@@ -260,7 +277,7 @@ let ``Attack`` () =
     (3, 2), makeUnit Goblin |> setHP 2
     (4, 3), makeUnit Goblin |> setHP 1
   ]
-  let expected = units |> Map.remove (2, 3) |> Some
+  let expected = Some (Some ((2, 3), makeUnit Goblin |> setHP -1), units |> Map.remove (2, 3))
   let actual = attackWithUnit tiles units p unit
   Assert.Equal (expected, actual)
 
@@ -382,7 +399,7 @@ let combatRoundTestData : obj [] [] = [|
 [<Theory>]
 [<MemberData("combatRoundTestData")>]
 let ``Combat Rounds - Test`` round units =
-  let { Round = actualRound; Units = actualUnits } = combatRoundInput |> (parseInput >> combat >> Seq.skip round >> Seq.head)
+  let { Round = actualRound; Units = actualUnits } = combatRoundInput |> (parseInput >> combat None >> Seq.skip round >> Seq.head)
   Assert.Equal (round, actualRound)
   Assert.Equal<Map<_,_>> (units, actualUnits)
 
@@ -506,13 +523,26 @@ let combatOutcomeTestData : obj [] [] = [|
 [<Theory>]
 [<MemberData("combatOutcomeTestData")>]
 let ``Combat Outcome - Test`` input units score =
-  let lastRound = input |> (parseInput >> combat >> Seq.last)
+  let lastRound = input |> (parseInput >> combat None >> Seq.last)
   let actualOutcome = outcome lastRound
   Assert.Equal<Map<_,_>> (units, lastRound.Units)
   Assert.Equal (score, actualOutcome)
 
 [<Fact>]
 let ``Combat Outcome - Actual`` () =
-  let actual = File.ReadAllLines "Day15input.txt" |> (parseInput >> combat >> Seq.last >> outcome)
+  let actual = File.ReadAllLines "Day15input.txt" |> (parseInput >> combat None >> Seq.last >> outcome)
   let expected = 229950
   Assert.Equal (expected, actual)
+
+[<Fact>]
+let ``Search - Test`` () =
+  let actual = combatRoundInput |> (parseInput >> search Elf)
+  let expected = 4988
+  Assert.Equal (expected, actual)
+
+[<Fact>]
+let ``Search - Actual`` () =
+  let actual = File.ReadAllLines "Day15input.txt" |> (parseInput >> search Elf)
+  let expected = 54360
+  Assert.Equal (expected, actual)
+  
