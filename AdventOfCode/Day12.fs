@@ -202,4 +202,4 @@ let ``Plant Generation - Actual 2`` () =
   let generations = 50000000000I
   let actual = File.ReadAllLines "Day12input.txt" |> (Array.toList >> parseInput >> gen 5 generations >> sum generations)
   let expected = 1650000000055I
-  Assert.True false
+  Assert.Equal (expected, actual)
